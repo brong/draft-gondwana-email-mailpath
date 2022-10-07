@@ -1,0 +1,188 @@
+%%%
+    title = "Email extension for specifying the next hop path for delivery"
+    abbrev = "Email Mailpath"
+    category = "std"
+    docName = "draft-gondwana-email-mailpath"
+    updates = [8620]
+    ipr= "trust200902"
+    area = "Applications"
+    workgroup = "DMARC"
+    keyword = ["email", "dmarc", "mail headers"]
+
+    date = 2022-10-07T00:00:01Z
+
+    [seriesInfo]
+    name="Internet-Draft"
+    value="draft-gondwana-email-mailpath-00"
+    stream="IETF"
+    status="standard"
+
+    [[author]]
+    initials="B."
+    surname="Gondwana"
+    fullname="Bron Gondwana"
+    role="editor"
+    organization = "Fastmail"
+        [author.address]
+        email = "brong@fastmailteam.com"
+        uri = "https://www.fastmail.com"
+        [author.address.postal]
+            street = "Level 2, 114 William St"
+            city = "Melbourne"
+            code = "VIC 3000"
+            country = "Australia"
+%%%
+
+.# Abstract
+
+Much work has been put into adding authentication methods (DKIM, ARC),
+source verification (SPF) and policy support (DMARC) to email flows,
+however all these specifications have focused on looking backwards
+through email flow only, and only add new headers to messages, causing
+them all to be susceptible to replay or re-use.
+
+In particular, in early 2022, a type of attack called "DKIM Replay" was
+widely seen, where correctly DKIM-signed messages were sent to a different
+envelope sender.  The "To" address would not be aligned, but such messages
+can also be the result of legitimate mailflow, so these messages were
+delivered to end-recipient mailboxes, and caused reputation issues for the
+signers of the original message.
+
+{mainmatter}
+
+# Introduction
+
+NOTE: this is an early draft of an idea.  Expect significant revision.
+
+Goals:
+
+1. to ensure that there’s never a message that can be replayed to an
+   arbitrary server with authentication claims from this protocol.
+2. to be able to build up an ecosystem over time such that if every hop
+   in a mail flow supports this specification, then additional trust
+   properties can apply to the mail flow.
+
+# Conventions Used In This Document
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL
+NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED",
+"MAY", and "OPTIONAL" in this document are to be interpreted as
+described in BCP 14 [@!RFC2119] [@!RFC8174] when, and only when,
+they appear in all capitals, as shown here.
+
+The definitions of JSON keys and datatypes in the document follow
+the conventions described in the core JMAP specification [@!RFC8620].
+
+# Discussion on Design
+
+The presence of Mailpath-Disposition and the checking of Mailpath-Disposition on delivery is sufficient to ensure that mail can’t be replayed down additional paths.  I did consider stripping signatures at each stage (and removal entirely when delivering to a host outside the ecosystem of mailpath supporting servers) but it doesn’t actually win anything since you can’t replay a mailpath message to another domain, since the disposition specifies an explicit path.
+
+At the moment there's no encryption of headers TO the destination.  We could
+also add encryption of headers, which might useful - since we're doing a DNS
+lookup and the record could return a public key to encrypt things for.
+
+# Mailpath - a chain of custody
+
+The Mailpath process adds information at three different stages of an email's
+lifecycle within each site along the email's flow ("site" is maybe a single
+server, or maybe a complex system all under the control of a single organisation
+and with its own internal trust patterns).
+
+I'll use "site" in the rest of this document, but maybe there's a better term?
+
+## Email Ingress
+
+Upon receiving the email, the site adds two headers:
+
+"Mailpath-Authentication-Results" - as with ARC, a list of all the checks which were
+done and the results of those checks at the time of Ingress.
+
+"Mailpath-Receipt-Signature" - a signature of the state of the message as it arrived,
+covering the "Mailpath-Authentication-Results" and any other headers required to
+confirm alignment.
+
+These headers have an i=(number) field, similar to ARC.
+
+## Email Modification
+
+If the site performs any modification to the email content or the DKIM signed headers;
+e.g. to, from, subject, ... then it adds a "Mailpath-Modification" header specifying
+which fields were changed, and why.
+
+TBD: do we want a registry of change reason codes, e.g. "SRS rewrite", "mailing list", "virus/malware scan",
+"add disclaimer" - or just plain text?
+
+## Email Egress
+
+The site looks up whether the next hop advertises support for Mailpath (see below for how)
+and based on this it creates a "Mailpath-Disposition" header specifying where the email is going next.
+
+The site also adds a "Mailpath-Transit-Signature" covering all the Ingress and Modification headers
+as well as the regular contents of a DKIM or ARC signature, and also the Mailpath-Disposition header.
+
+E.g.
+
+```
+Mailpath-Disposition: protocol=mailbox; to=example@fastmail.com
+
+Mailpath-Authentication-Results: i=2; spf=no; arc=yes; mailpath=yes
+Mailpath-Disposition: i=2; protocol=smtp; mx=example.com; to=fred@example.com; mailpath=selector._mailpath.example.com
+Mailpath-Transit-Signature: (…)
+Mailpath-Action: i=2; changeto=yes; changebody=no; changefrom=srs; …
+
+Mailpath-Authentication-Results: i=3; spf=no; arc=yes; mailpath=yes
+Mailpath-Disposition: i=3; protocol=smtp; mx=example.com; to=fred@example.com; mailpath=none
+Mailpath-Transit-Signature: (…)
+Mailpath-Action: i=2; changeto=yes; changebody=no; changefrom=srs; …
+```
+
+# Advertising support for Mailpath
+
+A site advertises support for mailpath by creating a record for the hostname in the each MX record.  This might be a TXT
+on that hostname, or a sub-name, or indeed a `_srv` record on the site's domain(s).  I'm happy to be guided by advice on this
+from those with more DNS structure experience.
+
+The important thing is, having calculated the next hop for a message, the site does a DNS lookup to see if Mailpath is supported.
+The record will contain a version, a "yes or no" and - potentially (TBD) a key which can be used to sign information to it.
+
+# Delayed SRS
+
+An option when deploying this, since we're checking for feature support on the NEXT hop of email flow, is to delay SRS
+rewriting (TBD - a reference for [SRS](https://en.wikipedia.org/wiki/Sender_Rewriting_Scheme)).  Instead of performing
+SRS immediately, a site could request that the next hop perform SRS only if exiting the mailpath ecosystem, or otherwise
+pass the same request on.
+
+In this case, a flow which consisted entirely of mailpath-aware sites could avoid doing SRS entirely by using the
+Mailpath-Modification statements and list of involved sites to know which site to direct the bounces to, with a
+additional Mailpath-Bounce headers specifying that they were responsible for forwarding the bounce back the way
+it came.
+
+# Operational considerations - cost
+
+The major additional cost will be borne by mailing list servers which expand one message to lots of copies.  I consider that acceptable and even somewhat desirable, given that most of them already do SRS rewriting.  They can still batch message to the same domain, since this spec (unlike Marc’s EVE spec) only specifies the destination MX domain, not the explicit target address(es).  THOUGH - I still see benefits in Marc’s one to stop replay to arbitrary mailboxes on the same domain, i.e. spamming all gmail users with a replay of a single message to gmail.
+
+Another way to work around the replay issue is to strip some signature material on delivery to the next hop or to a mailbox, so gmail could deliver a raw message to their users’ mailboxes which COULD NOT be replayed over the wire to a gmail MX as if it was signed by the source.  The retention of all the key material on delivery does allow more replay attacks if you only control the destination mailbox and not any of the servers along the way.
+
+# Security considerations
+
+DNS lookups will need the same security checks as MX lookups, in particular
+an attacker would could either suppress these DNS lookups (hence: break the
+chain of custody and reduce trust in the messages) or fake them (leading
+a naive forwarding server to look like a replay rather than a legitimate actor).
+
+Obviously the crypto will need to be checked by people who know more about
+this stuff than me!
+
+I'm sure the "delayed SRS" stuff has some gnarly edges I haven't considered.
+
+Maybe the list will come up with other things.
+
+# IANA considerations
+
+TBD.  We'll need to register the headers at least, and maybe the DNS records
+
+# Acknowledgements
+
+TBD
+
+{backmatter}
