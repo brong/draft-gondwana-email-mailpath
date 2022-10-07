@@ -56,7 +56,7 @@ NOTE: this is an early draft of an idea.  Expect significant revision.
 
 Goals:
 
-1. to ensure that there’s never a message that can be replayed to an
+1. to ensure that there's never a message that can be replayed to an
    arbitrary server with authentication claims from this protocol.
 2. to be able to build up an ecosystem over time such that if every hop
    in a mail flow supports this specification, then additional trust
@@ -75,7 +75,7 @@ the conventions described in the core JMAP specification [@!RFC8620].
 
 # Discussion on Design
 
-The presence of Mailpath-Disposition and the checking of Mailpath-Disposition on delivery is sufficient to ensure that mail can’t be replayed down additional paths.  I did consider stripping signatures at each stage (and removal entirely when delivering to a host outside the ecosystem of mailpath supporting servers) but it doesn’t actually win anything since you can’t replay a mailpath message to another domain, since the disposition specifies an explicit path.
+The presence of Mailpath-Disposition and the checking of Mailpath-Disposition on delivery is sufficient to ensure that mail can't be replayed down additional paths.  I did consider stripping signatures at each stage (and removal entirely when delivering to a host outside the ecosystem of mailpath supporting servers) but it doesn't actually win anything since you can't replay a mailpath message to another domain, since the disposition specifies an explicit path.
 
 At the moment there's no encryption of headers TO the destination.  We could
 also add encryption of headers, which might useful - since we're doing a DNS
@@ -126,14 +126,16 @@ E.g.
 Mailpath-Disposition: protocol=mailbox; to=example@fastmail.com
 
 Mailpath-Authentication-Results: i=2; spf=no; arc=yes; mailpath=yes
-Mailpath-Disposition: i=2; protocol=smtp; mx=example.com; to=fred@example.com; mailpath=selector._mailpath.example.com
-Mailpath-Transit-Signature: (…)
-Mailpath-Action: i=2; changeto=yes; changebody=no; changefrom=srs; …
+Mailpath-Disposition: i=2; protocol=smtp; mx=example.com; to=fred@example.com;
+ mailpath=selector._mailpath.example.com
+Mailpath-Transit-Signature: (...)
+Mailpath-Action: i=2; changeto=yes; changebody=no; changefrom=srs; ...
 
 Mailpath-Authentication-Results: i=3; spf=no; arc=yes; mailpath=yes
-Mailpath-Disposition: i=3; protocol=smtp; mx=example.com; to=fred@example.com; mailpath=none
-Mailpath-Transit-Signature: (…)
-Mailpath-Action: i=2; changeto=yes; changebody=no; changefrom=srs; …
+Mailpath-Disposition: i=3; protocol=smtp; mx=example.com; to=fred@example.com;
+ mailpath=none
+Mailpath-Transit-Signature: (...)
+Mailpath-Action: i=2; changeto=yes; changebody=no; changefrom=srs; ...
 ```
 
 # Advertising support for Mailpath
@@ -159,9 +161,9 @@ it came.
 
 # Operational considerations - cost
 
-The major additional cost will be borne by mailing list servers which expand one message to lots of copies.  I consider that acceptable and even somewhat desirable, given that most of them already do SRS rewriting.  They can still batch message to the same domain, since this spec (unlike Marc’s EVE spec) only specifies the destination MX domain, not the explicit target address(es).  THOUGH - I still see benefits in Marc’s one to stop replay to arbitrary mailboxes on the same domain, i.e. spamming all gmail users with a replay of a single message to gmail.
+The major additional cost will be borne by mailing list servers which expand one message to lots of copies.  I consider that acceptable and even somewhat desirable, given that most of them already do SRS rewriting.  They can still batch message to the same domain, since this spec (unlike Marc's EVE spec) only specifies the destination MX domain, not the explicit target address(es).  THOUGH - I still see benefits in Marc's one to stop replay to arbitrary mailboxes on the same domain, i.e. spamming all gmail users with a replay of a single message to gmail.
 
-Another way to work around the replay issue is to strip some signature material on delivery to the next hop or to a mailbox, so gmail could deliver a raw message to their users’ mailboxes which COULD NOT be replayed over the wire to a gmail MX as if it was signed by the source.  The retention of all the key material on delivery does allow more replay attacks if you only control the destination mailbox and not any of the servers along the way.
+Another way to work around the replay issue is to strip some signature material on delivery to the next hop or to a mailbox, so gmail could deliver a raw message to their users' mailboxes which COULD NOT be replayed over the wire to a gmail MX as if it was signed by the source.  The retention of all the key material on delivery does allow more replay attacks if you only control the destination mailbox and not any of the servers along the way.
 
 # Security considerations
 
